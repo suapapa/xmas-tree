@@ -1,7 +1,6 @@
 package main
 
 import (
-	"image/color"
 	"math"
 )
 
@@ -18,17 +17,6 @@ func (c *HSV) RGBA() (r, g, b, a uint32) {
 	b = uint32(math.Round(fb * 0xffffffff))
 	a = 0xffffffff
 	return
-}
-
-// NRGBA implements color.Color interface
-func (c *HSV) NRGBA() color.NRGBA {
-	fr, fg, fb := c.rgb()
-	return color.NRGBA{
-		R: uint8(math.Round(fr * 0xff)),
-		G: uint8(math.Round(fg * 0xff)),
-		B: uint8(math.Round(fb * 0xff)),
-		A: 0xff,
-	}
 }
 
 func (c *HSV) rgb() (r, g, b float64) {

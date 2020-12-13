@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"log"
+	"math"
 	"math/rand"
 	"time"
 
@@ -31,12 +32,12 @@ func main() {
 	tk := time.NewTicker(time.Second / 1)
 	for range tk.C {
 		for x := 0; x < img.Rect.Max.X; x++ {
-			hsv := HSV{
+			hsv := &HSV{
 				H: rand.Float64(),
 				S: rand.Float64(),
 				V: 1.0,
 			}
-			img.SetNRGBA(x, 0, hsv.NRGBA())
+			img.SetNRGBA(x, 0, NRGBA(hsv))
 		}
 		if err := d.Draw(d.Bounds(), img, image.Point{}); err != nil {
 			log.Fatal(err)
@@ -68,4 +69,16 @@ func getLEDs() display.Drawer {
 		log.Fatal(err)
 	}
 	return d
+}
+
+// NRGBA convert color.Color to color.NRGBA
+func NRGBA(c color.Color) color.NRGBA {
+	r, g, b, _ := c.RGBA()
+	fr, fg, fb := float64(r), float64(g), float64(b)
+	return color.NRGBA{
+		R: uint8(math.Round(fr * 0xff)),
+		G: uint8(math.Round(fg * 0xff)),
+		B: uint8(math.Round(fb * 0xff)),
+		A: 0xff,
+	}
 }
