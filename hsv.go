@@ -1,8 +1,6 @@
 package main
 
-import (
-	"math"
-)
+import "math"
 
 // HSV represents HSV color space
 type HSV struct {
@@ -59,10 +57,6 @@ func (c *HSV) rgb() (r, g, b float64) {
 			g = v1
 			b = v2
 		}
-
-		// r = r * 255 //RGB results from 0 to 255
-		// g = g * 255
-		// b = b * 255
 	}
 	return r, g, b
 }
