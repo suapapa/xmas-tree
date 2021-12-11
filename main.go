@@ -2,13 +2,16 @@ package main
 
 import (
 	"image"
-	"image/color"
+	"image/draw"
+	"image/gif"
 	"log"
-	"math"
 	"math/rand"
+	"os"
 	"time"
 
-	"periph.io/x/periph/conn/display"
+	"github.com/nfnt/resize"
+	"github.com/sztanpet/sh1106"
+	"periph.io/x/periph/conn/i2c/i2creg"
 	"periph.io/x/periph/conn/spi/spireg"
 	"periph.io/x/periph/devices/apa102"
 	"periph.io/x/periph/host"
@@ -22,21 +25,17 @@ func main() {
 	if _, err := host.Init(); err != nil {
 		log.Fatal(err)
 	}
-	d := getLEDs()
-	stars := NewStars(starCnt)
 
-	tk := time.NewTicker(time.Second / 30)
-	for t := range tk.C {
-		img := stars.Refresh(t)
-		if err := d.Draw(d.Bounds(), img, image.Point{}); err != nil {
-			log.Fatal(err)
-		}
-	}
+	go startDisp()
+	go startLEDs()
+
+	c := make(chan struct{})
+	<-c
 }
 
-// getLEDs returns an *apa102.Dev, or fails back to *screen.Dev if no SPI port
+// startLEDs returns an *apa102.Dev, or fails back to *screen.Dev if no SPI port
 // is found.
-func getLEDs() display.Drawer {
+func startLEDs() {
 	s, err := spireg.Open("")
 	if err != nil {
 		panic(err)
@@ -52,17 +51,70 @@ func getLEDs() display.Drawer {
 	if err != nil {
 		log.Fatal(err)
 	}
-	return d
+
+	stars := NewStars(starCnt)
+
+	tk := time.NewTicker(time.Second / 30)
+	for t := range tk.C {
+		img := stars.Refresh(t)
+		if err := d.Draw(d.Bounds(), img, image.Point{}); err != nil {
+			log.Fatal(err)
+		}
+	}
 }
 
-// NRGBA convert color.Color to color.NRGBA
-func NRGBA(c color.Color) color.NRGBA {
-	r, g, b, _ := c.RGBA()
-	fr, fg, fb := float64(r), float64(g), float64(b)
-	return color.NRGBA{
-		R: uint8(math.Round(fr * 0xff)),
-		G: uint8(math.Round(fg * 0xff)),
-		B: uint8(math.Round(fb * 0xff)),
-		A: 0xff,
+func startDisp() {
+	// Open a handle to the first available I²C bus:
+	bus, err := i2creg.Open("")
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	// Open a handle to a ssd1306 connected on the I²C bus:
+	dev, err := sh1106.NewI2C(bus, &sh1106.DefaultOpts)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Decodes an animated GIF as specified on the command line:
+	if len(os.Args) != 2 {
+		log.Fatal("please provide the path to an animated GIF")
+	}
+	f, err := os.Open(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+	}
+	g, err := gif.DecodeAll(f)
+	f.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Converts every frame to image.Gray and resize them:
+	imgs := make([]*image.Gray, len(g.Image))
+	for i := range g.Image {
+		imgs[i] = convertAndResizeAndCenter(dev.Bounds().Dx(), dev.Bounds().Dy(), g.Image[i])
+	}
+
+	// Display the frames in a loop:
+	var i int
+	for {
+		index := i % len(imgs)
+		c := time.After(time.Duration(10*g.Delay[index]) * time.Millisecond)
+		img := imgs[index]
+		dev.Draw(img.Bounds(), img, image.Point{})
+		<-c
+		i++
+	}
+}
+
+// convertAndResizeAndCenter takes an image, resizes and centers it on a
+// image.Gray of size w*h.
+func convertAndResizeAndCenter(w, h int, src image.Image) *image.Gray {
+	src = resize.Thumbnail(uint(w), uint(h), src, resize.Bicubic)
+	img := image.NewGray(image.Rect(0, 0, w, h))
+	r := src.Bounds()
+	r = r.Add(image.Point{(w - r.Max.X) / 2, (h - r.Max.Y) / 2})
+	draw.Draw(img, r, src, image.Point{}, draw.Src)
+	return img
 }

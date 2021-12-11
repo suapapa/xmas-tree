@@ -3,6 +3,7 @@ package main
 import (
 	"image"
 	"image/color"
+	"math"
 	"math/rand"
 	"time"
 )
@@ -47,4 +48,16 @@ func (s *Stars) Refresh(t time.Time) image.Image {
 	}
 
 	return s.img
+}
+
+// NRGBA convert color.Color to color.NRGBA
+func NRGBA(c color.Color) color.NRGBA {
+	r, g, b, _ := c.RGBA()
+	fr, fg, fb := float64(r), float64(g), float64(b)
+	return color.NRGBA{
+		R: uint8(math.Round(fr * 0xff)),
+		G: uint8(math.Round(fg * 0xff)),
+		B: uint8(math.Round(fb * 0xff)),
+		A: 0xff,
+	}
 }
