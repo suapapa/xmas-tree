@@ -1,0 +1,13 @@
+[Unit]
+Description=xmas-tree
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5s
+ExecStart=/home/pi/xmas-tree /home/pi/ballerine.gif
+
+[Install]
+WantedBy=multi-user.target
