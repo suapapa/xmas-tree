@@ -11,10 +11,10 @@ import (
 
 	"github.com/nfnt/resize"
 	"github.com/sztanpet/sh1106"
-	"periph.io/x/periph/conn/i2c/i2creg"
-	"periph.io/x/periph/conn/spi/spireg"
-	"periph.io/x/periph/devices/apa102"
-	"periph.io/x/periph/host"
+	"periph.io/x/conn/v3/i2c/i2creg"
+	"periph.io/x/conn/v3/spi/spireg"
+	"periph.io/x/devices/v3/apa102"
+	"periph.io/x/host/v3"
 )
 
 func init() {
