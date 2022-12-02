@@ -22,6 +22,7 @@ import (
 var (
 	flagDisp string
 	flagLEDs bool
+	flagV    bool
 
 	errC chan error
 )
@@ -33,6 +34,7 @@ func init() {
 func main() {
 	flag.StringVar(&flagDisp, "disp", "", "run gif on display")
 	flag.BoolVar(&flagLEDs, "leds", false, "run leds")
+	flag.BoolVar(&flagV, "v", false, "decrease v smoothly")
 	flag.Parse()
 
 	if _, err := host.Init(); err != nil {
@@ -76,12 +78,12 @@ func runLEDs() {
 		log.Fatal(err)
 	}
 
-	stars := NewStars(starCnt)
+	sky := NewSky(starCnt)
 
-	tk := time.NewTicker(time.Second / 30)
+	tk := time.NewTicker(time.Second / 60)
 	defer tk.Stop()
 	for t := range tk.C {
-		img := stars.Refresh(t)
+		img := sky.Refresh(t)
 		if err := d.Draw(d.Bounds(), img, image.Point{}); err != nil {
 			errC <- errors.Wrap(err, "failed to draw leds")
 			return
