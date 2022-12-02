@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"image"
 	"image/draw"
 	"image/gif"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nfnt/resize"
+	"github.com/pkg/errors"
 	"github.com/sztanpet/sh1106"
 	"periph.io/x/conn/v3/i2c/i2creg"
 	"periph.io/x/conn/v3/spi/spireg"
@@ -17,25 +19,47 @@ import (
 	"periph.io/x/host/v3"
 )
 
+var (
+	flagDisp string
+	flagLEDs bool
+
+	errC chan error
+)
+
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
 func main() {
+	flag.StringVar(&flagDisp, "disp", "", "run gif on display")
+	flag.BoolVar(&flagLEDs, "leds", false, "run leds")
+	flag.Parse()
+
 	if _, err := host.Init(); err != nil {
 		log.Fatal(err)
 	}
 
-	go startDisp()
-	go startLEDs()
+	errC = make(chan error, 2)
+	go func() {
+		for err := range errC {
+			log.Printf("error: %v", err)
+		}
+	}()
+
+	if flagDisp != "" {
+		go runDisp(flagDisp)
+	}
+	if flagLEDs {
+		go runLEDs()
+	}
 
 	c := make(chan struct{})
 	<-c
 }
 
-// startLEDs returns an *apa102.Dev, or fails back to *screen.Dev if no SPI port
+// runLEDs returns an *apa102.Dev, or fails back to *screen.Dev if no SPI port
 // is found.
-func startLEDs() {
+func runLEDs() {
 	s, err := spireg.Open("")
 	if err != nil {
 		panic(err)
@@ -55,39 +79,42 @@ func startLEDs() {
 	stars := NewStars(starCnt)
 
 	tk := time.NewTicker(time.Second / 30)
+	defer tk.Stop()
 	for t := range tk.C {
 		img := stars.Refresh(t)
 		if err := d.Draw(d.Bounds(), img, image.Point{}); err != nil {
-			log.Fatal(err)
+			errC <- errors.Wrap(err, "failed to draw leds")
+			return
 		}
 	}
 }
 
-func startDisp() {
+func runDisp(gifFN string) {
 	// Open a handle to the first available I²C bus:
 	bus, err := i2creg.Open("")
 	if err != nil {
-		log.Fatal(err)
+		errC <- errors.Wrap(err, "failed to open i2c bus")
+		return
 	}
 
 	// Open a handle to a ssd1306 connected on the I²C bus:
 	dev, err := sh1106.NewI2C(bus, &sh1106.DefaultOpts)
 	if err != nil {
-		log.Fatal(err)
+		errC <- errors.Wrap(err, "failed to open display")
+		return
 	}
 
 	// Decodes an animated GIF as specified on the command line:
-	if len(os.Args) != 2 {
-		log.Fatal("please provide the path to an animated GIF")
-	}
-	f, err := os.Open(os.Args[1])
+	f, err := os.Open(gifFN)
 	if err != nil {
-		log.Fatal(err)
+		errC <- errors.Wrap(err, "failed to open gif")
+		return
 	}
 	g, err := gif.DecodeAll(f)
 	f.Close()
 	if err != nil {
-		log.Fatal(err)
+		errC <- errors.Wrap(err, "failed to decode gif")
+		return
 	}
 
 	// Converts every frame to image.Gray and resize them:
@@ -102,7 +129,10 @@ func startDisp() {
 		index := i % len(imgs)
 		c := time.After(time.Duration(10*g.Delay[index]) * time.Millisecond)
 		img := imgs[index]
-		dev.Draw(img.Bounds(), img, image.Point{})
+		if err := dev.Draw(img.Bounds(), img, image.Point{}); err != nil {
+			errC <- errors.Wrap(err, "failed to draw image")
+			return
+		}
 		<-c
 		i++
 	}
