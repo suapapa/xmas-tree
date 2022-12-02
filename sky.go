@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"image"
 	"image/color"
-	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -14,44 +14,61 @@ const (
 )
 
 type Star struct {
-	i int
-	c *HSV
-	d time.Duration
+	ctx context.Context
+	c   *HSV
+	d   time.Duration
 	sync.RWMutex
 }
 
-func (s *Star) Run() {
-	dieF := func() {
-		var dur time.Duration
-		for {
+func NewStar(ctx context.Context) *Star {
+	return &Star{
+		ctx: ctx,
+		c:   &HSV{},
+	}
+}
+
+func (s *Star) Start() {
+	go func() {
+		defer func() {
+			// 종료시 모두 끔
 			s.Lock()
-			if flagV {
-				s.c.V -= 0.01
-			} else {
-				s.c.V = 0
-			}
-			if s.c.V <= 0 || dur <= 0 {
-				s.c.H = rand.Float64()
-				s.c.S = 0.5 + 0.5*rand.Float64()
-				s.c.V = 1.0
-				// 5초 ~ 10초
-				s.d = 5*time.Second + time.Duration(time.Duration(rand.Intn(5_000))*time.Millisecond)
-				dur = s.d / 100
-				if s.i == 0 {
-					log.Printf("s.d: %v, dur: %v", s.d, dur)
+			s.c.H = 0
+			s.c.S = 0
+			s.c.V = 0
+			s.Unlock()
+		}()
+
+		var dur time.Duration
+		// 처음 시작시 한번에 다 켜지는 것을 방지하기 위해
+		time.Sleep(time.Duration(rand.Intn(5000)) * time.Millisecond)
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			default:
+				s.Lock()
+				if flagV {
+					s.c.V -= 0.01 // 밝기를 점점 줄임
+				} else {
+					s.c.V = 0
+				}
+				if s.c.V <= 0 || dur <= 0 {
+					s.c.H = rand.Float64()
+					s.c.S = 0.5 + 0.5*rand.Float64() // 채도가 너무 낮은 색은 지양
+					s.c.V = 1.0
+					// 3초 ~ 10초
+					s.d = 3*time.Second + time.Duration(time.Duration(rand.Intn(7_000))*time.Millisecond)
+					dur = s.d / 100
+				}
+				s.Unlock()
+				if flagV {
+					time.Sleep(dur)
+				} else {
+					time.Sleep(s.d)
 				}
 			}
-			s.Unlock()
-			if flagV {
-				time.Sleep(dur)
-			} else {
-				time.Sleep(s.d)
-			}
 		}
-	}
-
-	s.c = &HSV{}
-	go dieF()
+	}()
 }
 
 func (s *Star) GetNRGBA() color.NRGBA {
@@ -59,9 +76,6 @@ func (s *Star) GetNRGBA() color.NRGBA {
 	defer s.Unlock()
 
 	r, g, b, _ := s.c.RGBA()
-	if s.i == 0 {
-		log.Printf("r: %08x, g: %08x, b: %08x", r, g, b)
-	}
 	c := color.NRGBA{
 		R: uint8(r >> 24),
 		G: uint8(g >> 24),
@@ -69,37 +83,35 @@ func (s *Star) GetNRGBA() color.NRGBA {
 		A: 0xff,
 	}
 
-	if s.i == 0 {
-		log.Printf("c: %v", c)
-	}
-
 	return c
 }
 
 type Sky struct {
+	ctx   context.Context
 	cnt   int
 	stars []*Star
 	img   *image.NRGBA
 }
 
-func NewSky(cnt int) *Sky {
+func NewSky(ctx context.Context, cnt int) *Sky {
 	sky := Sky{
+		ctx:   ctx,
 		cnt:   cnt,
 		stars: make([]*Star, cnt),
 		img:   image.NewNRGBA(image.Rect(0, 0, cnt, 1)),
 	}
 
-	for i := range sky.stars {
-		sky.stars[i] = &Star{
-			i: i,
-		}
-		go sky.stars[i].Run()
-	}
-
 	return &sky
 }
 
-func (s *Sky) Refresh(t time.Time) image.Image {
+func (s *Sky) Start() {
+	for i := range s.stars {
+		s.stars[i] = NewStar(s.ctx)
+		s.stars[i].Start()
+	}
+}
+
+func (s *Sky) Image() image.Image {
 	for i, star := range s.stars {
 		s.img.SetNRGBA(i, 0, star.GetNRGBA())
 	}

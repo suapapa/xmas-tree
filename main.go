@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"image"
 	"image/draw"
@@ -8,6 +9,9 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/nfnt/resize"
@@ -24,7 +28,8 @@ var (
 	flagLEDs bool
 	flagV    bool
 
-	errC chan error
+	errC   chan error
+	exitWG sync.WaitGroup
 )
 
 func init() {
@@ -48,20 +53,27 @@ func main() {
 		}
 	}()
 
+	ctx, cancelF := context.WithCancel(context.Background())
 	if flagDisp != "" {
-		go runDisp(flagDisp)
+		exitWG.Add(1)
+		go runDisp(ctx, flagDisp)
 	}
 	if flagLEDs {
-		go runLEDs()
+		exitWG.Add(1)
+		go runLEDs(ctx)
 	}
 
-	c := make(chan struct{})
-	<-c
+	exitC := make(chan os.Signal, 1)
+	signal.Notify(exitC, syscall.SIGINT, syscall.SIGTERM)
+
+	<-exitC
+	cancelF()
+	exitWG.Wait()
 }
 
-// runLEDs returns an *apa102.Dev, or fails back to *screen.Dev if no SPI port
-// is found.
-func runLEDs() {
+// runLEDs runs loop that changes the LEDs colors.
+func runLEDs(ctx context.Context) {
+	defer exitWG.Done()
 	s, err := spireg.Open("")
 	if err != nil {
 		panic(err)
@@ -78,20 +90,35 @@ func runLEDs() {
 		log.Fatal(err)
 	}
 
-	sky := NewSky(starCnt)
+	sky := NewSky(ctx, starCnt)
+	sky.Start()
 
-	tk := time.NewTicker(time.Second / 24)
+	tk := time.NewTicker(time.Second / 24) //24 fps
 	defer tk.Stop()
-	for t := range tk.C {
-		img := sky.Refresh(t)
+
+	updateF := func() {
+		img := sky.Image()
 		if err := d.Draw(d.Bounds(), img, image.Point{}); err != nil {
 			errC <- errors.Wrap(err, "failed to draw leds")
 			return
 		}
 	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			// 별을 모두 끄기 위해
+			time.Sleep(time.Second)
+			updateF()
+			return
+		case <-tk.C:
+			updateF()
+		}
+	}
 }
 
-func runDisp(gifFN string) {
+func runDisp(ctx context.Context, gifFN string) {
+	defer exitWG.Done()
 	// Open a handle to the first available I²C bus:
 	bus, err := i2creg.Open("")
 	if err != nil {
@@ -128,15 +155,20 @@ func runDisp(gifFN string) {
 	// Display the frames in a loop:
 	var i int
 	for {
-		index := i % len(imgs)
-		c := time.After(time.Duration(10*g.Delay[index]) * time.Millisecond)
-		img := imgs[index]
-		if err := dev.Draw(img.Bounds(), img, image.Point{}); err != nil {
-			errC <- errors.Wrap(err, "failed to draw image")
+		select {
+		case <-ctx.Done():
 			return
+		default:
+			index := i % len(imgs)
+			c := time.After(time.Duration(10*g.Delay[index]) * time.Millisecond)
+			img := imgs[index]
+			if err := dev.Draw(img.Bounds(), img, image.Point{}); err != nil {
+				errC <- errors.Wrap(err, "failed to draw image")
+				return
+			}
+			<-c
+			i++
 		}
-		<-c
-		i++
 	}
 }
 
