@@ -80,7 +80,7 @@ func runLEDs() {
 
 	sky := NewSky(starCnt)
 
-	tk := time.NewTicker(time.Second / 60)
+	tk := time.NewTicker(time.Second / 24)
 	defer tk.Stop()
 	for t := range tk.C {
 		img := sky.Refresh(t)

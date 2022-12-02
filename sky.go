@@ -21,7 +21,8 @@ type Star struct {
 }
 
 func (s *Star) Run() {
-	dieF := func(dur time.Duration) {
+	dieF := func() {
+		var dur time.Duration
 		for {
 			s.Lock()
 			if flagV {
@@ -30,12 +31,11 @@ func (s *Star) Run() {
 				s.c.V = 0
 			}
 			if s.c.V <= 0 || dur <= 0 {
-				s.c = &HSV{
-					H: rand.Float64(),
-					S: 1.0,
-					V: 1.0,
-				}
-				s.d = 10*time.Second + time.Duration(time.Duration(rand.Intn(10_000))*time.Millisecond)
+				s.c.H = rand.Float64()
+				s.c.S = 0.5 + 0.5*rand.Float64()
+				s.c.V = 1.0
+				// 5초 ~ 10초
+				s.d = 5*time.Second + time.Duration(time.Duration(rand.Intn(5_000))*time.Millisecond)
 				dur = s.d / 100
 				if s.i == 0 {
 					log.Printf("s.d: %v, dur: %v", s.d, dur)
@@ -51,9 +51,7 @@ func (s *Star) Run() {
 	}
 
 	s.c = &HSV{}
-	// 10초 ~ 20초 사이
-	s.d = 10*time.Second + time.Duration(time.Duration(rand.Intn(10_000))*time.Millisecond)
-	go dieF(0)
+	go dieF()
 }
 
 func (s *Star) GetNRGBA() color.NRGBA {
